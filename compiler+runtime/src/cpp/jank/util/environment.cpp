@@ -148,6 +148,11 @@ namespace jank::util
 
   jtl::immutable_string resource_dir()
   {
+    if(auto const *env = getenv("JANK_RESOURCE_DIR"); env && *env)
+    {
+      return env;
+    }
+
     std::filesystem::path const dir{ JANK_RESOURCE_DIR };
     if(dir.is_absolute())
     {
