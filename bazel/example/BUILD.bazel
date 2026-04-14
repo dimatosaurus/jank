@@ -1,7 +1,5 @@
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//bazel:jank.bzl", "jank_aot_binary", "jank_binary")
+load("//bazel:jank.bzl", "jank_aot_binary", "jank_binary", "jank_cc_binary")
 
 # --- Pure jank example ---
 
@@ -35,89 +33,14 @@ jank_aot_binary(
 )
 
 # --- C++ embedding example ---
-# A C++ program that hosts the jank runtime, loads .jank code,
-# and calls jank functions from C++.
+# A C++ host that initializes the jank runtime, loads .jank code, and
+# calls jank functions.  shared.hpp is used by both the host and the
+# jank script to prove they share the same function.
 
-genrule(
-    name = "gen_embed_wrapper",
-    outs = ["embed_wrapper.sh"],
-    cmd = """cat > $@ << 'SCRIPT'
-#!/bin/bash
-set -euo pipefail
-if [[ -n "$${RUNFILES_DIR:-}" ]]; then
-  R="$${RUNFILES_DIR}/_main"
-elif [[ -d "$${BASH_SOURCE[0]}.runfiles" ]]; then
-  R="$${BASH_SOURCE[0]}.runfiles/_main"
-else
-  echo "error: cannot find runfiles" >&2; exit 1
-fi
-resolve() { python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$$1"; }
-REAL_BIN="$$(resolve "$$R/bazel/example/embed_bin")"
-REAL_RES="$$(resolve "$$R/compiler+runtime/jank_resource")"
-BIN_DIR="$$(dirname "$$REAL_BIN")"
-# Place jank_resource next to the binary so JANK_RESOURCE_DIR resolves.
-ln -sfn "$$REAL_RES" "$${BIN_DIR}/jank_resource" 2>/dev/null || true
-# Place pre-compiled core-libs next to the binary so the module loader
-# finds .o files and skips slow JIT compilation of clojure.core.
-mkdir -p "$${BIN_DIR}/core-libs/clojure"
-if [[ -f "$$R/compiler+runtime/clojure/core.o" ]]; then
-  ln -sf "$$(resolve "$$R/compiler+runtime/clojure/core.o")" "$${BIN_DIR}/core-libs/clojure/core.o"
-fi
-# cd to workspace root so eval_file("bazel/example/plugin.jank") works.
-cd "$$R"
-# Add the example dir to JIT include path so shared.hpp is found.
-export JANK_EXTRA_FLAGS="-I $$R/bazel/example"
-exec "$$REAL_BIN" "$$@"
-SCRIPT
-""",
-    executable = True,
-)
-
-sh_binary(
+jank_cc_binary(
     name = "embed",
-    srcs = [":gen_embed_wrapper"],
-    data = [
-        ":embed_bin",
-        "plugin.jank",
-        "shared.hpp",
-        "//compiler+runtime:jank_resource",
-        "//compiler+runtime:clojure_core",
-    ],
-)
-
-cc_binary(
-    name = "embed_bin",
     srcs = ["embed.cpp", "shared.cpp", "shared.hpp"],
-    data = [
-        "plugin.jank",
-        "shared.hpp",
-        "//compiler+runtime:jank_resource",
-    ],
+    data = ["plugin.jank"],
+    jit_headers = ["shared.hpp"],
     includes = ["."],
-    copts = [
-        "-std=gnu++20",
-        "-frtti",
-        "-fexceptions",
-        "-femulated-tls",
-        "-w",
-    ],
-    linkopts = select({
-        "@platforms//os:macos": [
-            "-Wl,-flat_namespace",
-            "-Wl,-undefined",
-            "-Wl,suppress",
-            "-Wl,-export_dynamic",
-        ],
-        "@platforms//os:linux": ["-rdynamic"],
-    }),
-    deps = [
-        "//compiler+runtime:jank_lib",
-        "@cppinterop",
-        "@openssl//:crypto",
-        "@zlib",
-        "@llvm-project//llvm:Core",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//clang:basic",
-        "@llvm-project//clang:frontend",
-    ],
 )

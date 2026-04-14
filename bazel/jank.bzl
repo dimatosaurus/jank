@@ -1,3 +1,4 @@
+load("@rules_cc//cc:cc_binary.bzl", _cc_binary = "cc_binary")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 
 """Bazel rules for building jank (Clojure dialect) projects.
@@ -146,7 +147,7 @@ def _jank_binary_impl(ctx):
     # --module-path entries (runfiles-relative).
     module_path_parts = []
     for d in src_dirs:
-        module_path_parts.append("\"$RUNFILES/_main/{}\"".format(d))
+        module_path_parts.append("\"$R/_main/{}\"".format(d))
     module_path_expr = ":".join(module_path_parts) if module_path_parts else ""
 
     # Collect -I include directories from cc_deps.
@@ -163,7 +164,7 @@ def _jank_binary_impl(ctx):
 
     include_flags = []
     for d in include_dirs.keys():
-        include_flags.append("-I \"$RUNFILES/_main/{}\"".format(d))
+        include_flags.append("-I \"$R/_main/{}\"".format(d))
     include_flags_str = " ".join(include_flags)
 
     # Resolve the main source file.
@@ -181,36 +182,22 @@ def _jank_binary_impl(ctx):
 set -euo pipefail
 
 # Resolve runfiles directory.
-if [[ -n "${{RUNFILES_DIR:-}}" ]]; then
-  RUNFILES="${{RUNFILES_DIR}}"
-elif [[ -d "${{BASH_SOURCE[0]}}.runfiles" ]]; then
-  RUNFILES="${{BASH_SOURCE[0]}}.runfiles"
-else
-  echo "error: cannot find runfiles directory" >&2
-  exit 1
-fi
-
-# Symlink pre-compiled core-libs next to the jank binary so the module
-# loader finds .o files and skips slow JIT compilation of clojure.core.
+if [[ -n "${{RUNFILES_DIR:-}}" ]]; then R="${{RUNFILES_DIR}}"
+elif [[ -d "${{BASH_SOURCE[0]}}.runfiles" ]]; then R="${{BASH_SOURCE[0]}}.runfiles"
+else echo "error: cannot find runfiles" >&2; exit 1; fi
 resolve() {{ python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$1"; }}
-JANK_BIN="${{RUNFILES}}/_main/{compiler}"
+JANK_BIN="${{R}}/_main/{compiler}"
 JANK_DIR="$(dirname "$(resolve "$JANK_BIN")")"
-if [[ -f "${{RUNFILES}}/_main/{core_o}" ]]; then
-  mkdir -p "$JANK_DIR/core-libs/clojure"
-  ln -sf "$(resolve "${{RUNFILES}}/_main/{core_o}")" "$JANK_DIR/core-libs/clojure/core.o"
-fi
-# Symlink the Bazel-built PCH next to the binary so jank finds it.
-PCH_SRC="$(resolve "${{RUNFILES}}/_main/{pch}" 2>/dev/null || true)"
-if [[ -n "$PCH_SRC" && "$PCH_SRC" != "$JANK_DIR/incremental.pch" ]]; then
-  ln -sf "$PCH_SRC" "$JANK_DIR/incremental.pch"
-fi
-
+export JANK_RESOURCE_DIR="$(resolve "$R/_main/{resource_dir}")"
+[[ -f "$R/_main/{core_o}" ]] && mkdir -p "$JANK_DIR/core-libs/clojure" && ln -sf "$(resolve "$R/_main/{core_o}")" "$JANK_DIR/core-libs/clojure/core.o"
+PCH="$(resolve "$R/_main/{pch}" 2>/dev/null || true)"; [[ -n "$PCH" && "$PCH" != "$JANK_DIR/incremental.pch" ]] && ln -sf "$PCH" "$JANK_DIR/incremental.pch"
 exec "$JANK_BIN" \\
   --module-path {module_path} \\
   {include_flags} \\
-  run "${{RUNFILES}}/_main/{main}" "$@"
+  run "${{R}}/_main/{main}" "$@"
 """.format(
         compiler = compiler.short_path,
+        resource_dir = ctx.files._resource_dir[0].short_path if ctx.files._resource_dir else "",
         module_path = module_path_expr,
         include_flags = include_flags_str,
         main = main_path,
@@ -315,6 +302,146 @@ ln -sfn "$REAL_AOT" "$STAGE/jank_resource"
         files = depset([out]),
         executable = out,
     )]
+
+# ---------------------------------------------------------------------------
+# jank_cc_binary — wraps a cc_binary that embeds jank_lib with the
+# runtime plumbing (resource dir, PCH, core-libs, JIT include paths).
+# ---------------------------------------------------------------------------
+
+def _jank_cc_binary_impl(ctx):
+    launcher = ctx.actions.declare_file(ctx.attr.name)
+    binary = ctx.executable.binary
+
+    core_o = ctx.files._core_libs[0].short_path if ctx.files._core_libs else ""
+    pch = ctx.files._pch[0].short_path if ctx.files._pch else ""
+    resource_dir = ctx.files._resource_dir[0].short_path if ctx.files._resource_dir else ""
+
+    # Collect JIT include dirs from data files (headers the JIT needs).
+    jit_include_dirs = {}
+    for f in ctx.files.jit_headers:
+        jit_include_dirs[f.dirname] = True
+
+    jit_flags_parts = []
+    for d in jit_include_dirs.keys():
+        jit_flags_parts.append("-I $R/_main/{}".format(d))
+    jit_flags = " ".join(jit_flags_parts)
+
+    script = """\
+#!/bin/bash
+set -euo pipefail
+if [[ -n "${{RUNFILES_DIR:-}}" ]]; then R="${{RUNFILES_DIR}}"
+elif [[ -d "${{BASH_SOURCE[0]}}.runfiles" ]]; then R="${{BASH_SOURCE[0]}}.runfiles"
+else echo "error: cannot find runfiles" >&2; exit 1; fi
+resolve() {{ python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$1"; }}
+BIN="$(resolve "$R/_main/{binary}")"
+BIN_DIR="$(dirname "$BIN")"
+export JANK_RESOURCE_DIR="$(resolve "$R/_main/{resource_dir}")"
+# PCH and core-libs must be next to the binary (jank checks process_dir/).
+[[ -f "$R/_main/{core_o}" ]] && mkdir -p "$BIN_DIR/core-libs/clojure" && ln -sf "$(resolve "$R/_main/{core_o}")" "$BIN_DIR/core-libs/clojure/core.o"
+PCH="$(resolve "$R/_main/{pch}" 2>/dev/null || true)"; [[ -n "$PCH" && "$PCH" != "$BIN_DIR/incremental.pch" ]] && ln -sf "$PCH" "$BIN_DIR/incremental.pch"
+{jit_export}cd "$R/_main"
+exec "$BIN" "$@"
+""".format(
+        binary = binary.short_path,
+        resource_dir = resource_dir,
+        core_o = core_o,
+        pch = pch,
+        jit_export = 'export JANK_EXTRA_FLAGS="{}"\n'.format(jit_flags) if jit_flags else "",
+    )
+
+    ctx.actions.write(output = launcher, content = script, is_executable = True)
+
+    runfiles = ctx.runfiles(
+        files = [binary] + ctx.files.data + ctx.files.jit_headers,
+        transitive_files = depset(transitive = [
+            ctx.attr._resource_dir.files,
+            ctx.attr._core_libs.files,
+            ctx.attr._pch.files,
+            ctx.attr.binary[DefaultInfo].default_runfiles.files,
+        ]),
+    )
+
+    return [DefaultInfo(
+        files = depset([launcher]),
+        executable = launcher,
+        runfiles = runfiles,
+    )]
+
+_jank_cc_runner = rule(
+    implementation = _jank_cc_binary_impl,
+    attrs = {
+        "binary": attr.label(mandatory = True, executable = True, cfg = "target"),
+        "data": attr.label_list(allow_files = True),
+        "jit_headers": attr.label_list(allow_files = True),
+        "_resource_dir": attr.label(default = "//compiler+runtime:jank_resource"),
+        "_core_libs": attr.label(default = "//compiler+runtime:clojure_core"),
+        "_pch": attr.label(default = "//compiler+runtime:incremental_pch"),
+    },
+    executable = True,
+)
+
+# The default deps every cc_binary embedding jank needs.
+_JANK_RUNTIME_DEPS = [
+    "//compiler+runtime:jank_lib",
+    "@cppinterop",
+    "@openssl//:crypto",
+    "@zlib",
+    "@llvm-project//llvm:Core",
+    "@llvm-project//llvm:Support",
+    "@llvm-project//clang:basic",
+    "@llvm-project//clang:frontend",
+]
+
+_JANK_COPTS = [
+    "-std=gnu++20",
+    "-frtti",
+    "-fexceptions",
+    "-femulated-tls",
+]
+
+def jank_cc_binary(name, srcs, deps = [], data = [], jit_headers = [], copts = [], linkopts = [], **kwargs):
+    """A cc_binary that embeds the jank runtime.
+
+    Automatically adds jank_lib and LLVM/Clang deps, the right compiler
+    and linker flags, and wraps the binary with the jank resource dir /
+    PCH / core-libs setup so it just works with `bazel run`.
+
+    Args:
+        name: Target name.
+        srcs: C++ source files.
+        deps: Additional deps (jank runtime deps are added automatically).
+        data: Runtime data files (e.g. .jank scripts).
+        jit_headers: Headers that JIT-compiled jank code needs (added to -I).
+        copts: Additional compiler options.
+        linkopts: Additional linker options.
+        **kwargs: Passed through to cc_binary.
+    """
+    bin_name = name + "_bin"
+
+    _cc_binary(
+        name = bin_name,
+        srcs = srcs,
+        deps = deps + _JANK_RUNTIME_DEPS,
+        copts = _JANK_COPTS + copts,
+        linkopts = linkopts + select({
+            "@platforms//os:macos": [
+                "-Wl,-flat_namespace",
+                "-Wl,-undefined",
+                "-Wl,suppress",
+                "-Wl,-export_dynamic",
+            ],
+            "@platforms//os:linux": ["-rdynamic"],
+        }),
+        visibility = ["//visibility:private"],
+        **kwargs
+    )
+
+    _jank_cc_runner(
+        name = name,
+        binary = ":" + bin_name,
+        data = data,
+        jit_headers = jit_headers,
+    )
 
 jank_aot_binary = rule(
     implementation = _jank_aot_binary_impl,
