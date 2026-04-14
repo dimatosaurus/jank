@@ -1,0 +1,16 @@
+; Demonstrate calling a C++ library from jank.
+;
+; The header is included via cpp/raw.  The -I flag (passed by the
+; jank_binary rule's cc_deps attribute) tells the JIT where to find it.
+; Functions are called with (cpp/namespace.function args...).
+
+(ns cpp-interop.core)
+
+(cpp/raw "#include <cpplib.hpp>")
+
+(println "--- jank + C++ interop example ---")
+(println (cpp/cpplib.greeting))
+
+(println "Fibonacci numbers computed in C++:")
+(doseq [n [0 1 2 5 10 20 30 40]]
+  (println "  fib(" n ") =" (cpp/cpplib.fib n)))

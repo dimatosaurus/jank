@@ -1,0 +1,15 @@
+(println "Hello from jank, built with Bazel!")
+(println "1 + 2 =" (+ 1 2))
+
+(defn greet [name]
+  (str "Hello, " name "!"))
+
+(println (greet "world"))
+
+(println "Fibonacci(10) =" (let [fib (fn fib [n]
+                                       (if (<= n 1)
+                                         n
+                                         (+ (fib (- n 1)) (fib (- n 2)))))]
+                              (fib 10)))
+
+(println "map inc [1 2 3 4 5] =>" (vec (map inc [1 2 3 4 5])))

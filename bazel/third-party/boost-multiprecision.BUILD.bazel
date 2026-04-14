@@ -1,0 +1,15 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "hdrs",
+    srcs = glob(["include/boost/**/*.hpp"]),
+)
+
+cc_library(
+    name = "boost-multiprecision",
+    hdrs = glob(["include/boost/**/*.hpp"]),
+    includes = ["include"],
+    defines = ["BOOST_MP_STANDALONE"],
+)

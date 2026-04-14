@@ -1,0 +1,37 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "hdrs",
+    srcs = glob(["folly/**/*.h"]),
+)
+
+cc_library(
+    name = "folly",
+    srcs = [
+        "folly/ScopeGuard.cpp",
+        "folly/SharedMutex.cpp",
+        "folly/concurrency/CacheLocality.cpp",
+        "folly/synchronization/ParkingLot.cpp",
+        "folly/synchronization/SanitizeThread.cpp",
+        "folly/lang/SafeAssert.cpp",
+        "folly/lang/ToAscii.cpp",
+        "folly/system/ThreadId.cpp",
+        "folly/system/AtFork.cpp",
+        "folly/detail/Futex.cpp",
+        "folly/memory/folly_stubs.cpp",
+    ],
+    hdrs = glob(["folly/**/*.h"]),
+    includes = ["."],
+    copts = ["-w"],
+    defines = [
+        "FOLLY_HAVE_JEMALLOC=0",
+        "FOLLY_HAVE_TCMALLOC=0",
+        "FOLLY_ASSUME_NO_JEMALLOC=1",
+        "FOLLY_ASSUME_NO_TCMALLOC=1",
+    ],
+    deps = [
+        "@boost-preprocessor",
+    ],
+)

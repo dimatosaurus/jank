@@ -1,0 +1,2 @@
+# Overlay BUILD files for third-party git submodules.
+exports_files(glob(["*.BUILD.bazel"]))

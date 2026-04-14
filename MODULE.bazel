@@ -1,0 +1,45 @@
+module(
+    name = "jank",
+    version = "0.1",
+)
+
+bazel_dep(name = "llvm", version = "0.7.0")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "openssl", version = "3.5.5.bcr.3")
+bazel_dep(name = "zlib", version = "1.3.2")
+bazel_dep(name = "zstd", version = "1.5.7.bcr.1")
+bazel_dep(name = "boost.asio", version = "1.90.0.bcr.1")
+bazel_dep(name = "rules_shell", version = "0.4.1")
+
+register_toolchains("@llvm//toolchain:all")
+
+llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
+llvm.configure(
+    targets = [
+        "AArch64",
+        "X86",
+    ],
+)
+use_repo(llvm, "llvm-project")
+
+# ---------- Third-party submodule repos ----------
+# Each git submodule is wrapped as a local repo with our BUILD overlay,
+# so we never modify files inside the submodules.
+
+new_local_repository = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:local.bzl",
+    "new_local_repository",
+)
+
+new_local_repository(name = "bdwgc",                path = "compiler+runtime/third-party/bdwgc",                build_file = "//bazel/third-party:bdwgc.BUILD.bazel")
+new_local_repository(name = "boost-multiprecision", path = "compiler+runtime/third-party/boost-multiprecision", build_file = "//bazel/third-party:boost-multiprecision.BUILD.bazel")
+new_local_repository(name = "boost-preprocessor",   path = "compiler+runtime/third-party/boost-preprocessor",   build_file = "//bazel/third-party:boost-preprocessor.BUILD.bazel")
+new_local_repository(name = "cppinterop",           path = "compiler+runtime/third-party/cppinterop",           build_file = "//bazel/third-party:cppinterop.BUILD.bazel")
+new_local_repository(name = "cpptrace",             path = "compiler+runtime/third-party/cpptrace",             build_file = "//bazel/third-party:cpptrace.BUILD.bazel")
+new_local_repository(name = "folly",                path = "compiler+runtime/third-party/folly",                build_file = "//bazel/third-party:folly.BUILD.bazel")
+new_local_repository(name = "ftxui",                path = "compiler+runtime/third-party/ftxui",                build_file = "//bazel/third-party:ftxui.BUILD.bazel")
+new_local_repository(name = "immer",                path = "compiler+runtime/third-party/immer",                build_file = "//bazel/third-party:immer.BUILD.bazel")
+new_local_repository(name = "nanobench",            path = "compiler+runtime/third-party/nanobench",            build_file = "//bazel/third-party:nanobench.BUILD.bazel")
+new_local_repository(name = "stduuid",              path = "compiler+runtime/third-party/stduuid",              build_file = "//bazel/third-party:stduuid.BUILD.bazel")
+new_local_repository(name = "zip",                  path = "compiler+runtime/third-party/zip",                  build_file = "//bazel/third-party:zip.BUILD.bazel")

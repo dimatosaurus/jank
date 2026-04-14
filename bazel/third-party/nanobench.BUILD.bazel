@@ -1,0 +1,16 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "hdrs",
+    srcs = ["include/nanobench.h"],
+)
+
+cc_library(
+    name = "nanobench",
+    srcs = ["src/nanobench.cpp"],
+    hdrs = ["include/nanobench.h"],
+    includes = ["include"],
+    copts = ["-w"],
+)

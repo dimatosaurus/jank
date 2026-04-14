@@ -1,0 +1,38 @@
+common --enable_bzlmod
+
+build --cxxopt=-std=gnu++20
+build --host_cxxopt=-std=gnu++20
+
+# RTTI and exceptions are required for LLVM interop and the jank runtime.
+build --cxxopt=-frtti
+build --host_cxxopt=-frtti
+build --cxxopt=-fexceptions
+build --host_cxxopt=-fexceptions
+
+# LTO is explicitly not used; it causes runtime symbol lookup issues with the JIT.
+build --features=-thin_lto
+
+# The LLVM Bazel overlay has some missing deps in its module maps.
+# Disable layering check to avoid those errors.
+build --features=-layering_check
+build --host_features=-layering_check
+
+# The hermetic LLVM module's internal targets need to be accessed for
+# the jank resource directory assembly.
+build --check_visibility=false
+
+
+# Avoid sandboxing issues on macOS with symlinks.
+build --spawn_strategy=local
+
+# Default to optimized release builds with stripped binaries.
+build -c opt
+build --strip=always
+
+# LLVM 22.1.0 has a debug assertion in Sema.h (BoundTypeDiagnoser) that
+# fires during JIT compilation of clojure.core.  Disable assertions in
+# LLVM/Clang sources regardless of build config so that debug builds of
+# jank itself still work.  The .+ in the pattern matches the repo-name
+# characters (including the literal '+' in llvm++llvm+llvm-project).
+build --per_file_copt=external/.+llvm.+@-DNDEBUG
+build --host_per_file_copt=external/.+llvm.+@-DNDEBUG

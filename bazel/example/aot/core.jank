@@ -1,0 +1,13 @@
+(ns aot.core)
+
+(defn -main [& args]
+  (println "Hello from an AOT-compiled jank binary!")
+  (println "Arguments:" (vec args))
+  (println "2 + 3 =" (+ 2 3))
+  (println "Fibonacci:")
+  (let [fib (fn fib [n]
+              (if (<= n 1)
+                n
+                (+ (fib (- n 1)) (fib (- n 2)))))]
+    (doseq [n [5 10 15 20]]
+      (println "  fib(" n ") =" (fib n)))))

@@ -1,0 +1,51 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "hdrs",
+    srcs = glob([
+        "include/cpptrace/*.hpp",
+        "include/ctrace/*.h",
+    ]),
+)
+
+# cpptrace compiles all backend source files; preprocessor guards select the
+# active backend at compile time.
+cc_library(
+    name = "cpptrace",
+    srcs = glob(
+        [
+            "src/**/*.cpp",
+            "src/**/*.hpp",
+        ],
+    ),
+    hdrs = glob([
+        "include/cpptrace/*.hpp",
+        "include/ctrace/*.h",
+    ]),
+    includes = [
+        "include",
+        "src",
+    ],
+    copts = ["-w"],
+    local_defines = [
+        "CPPTRACE_STATIC_DEFINE",
+        "CPPTRACE_NO_STD_FORMAT",
+    ] + select({
+        "@platforms//os:macos": [
+            "CPPTRACE_UNWIND_WITH_EXECINFO",
+            "CPPTRACE_GET_SYMBOLS_WITH_LIBDL",
+            "CPPTRACE_DEMANGLE_WITH_CXXABI",
+        ],
+        "@platforms//os:linux": [
+            "CPPTRACE_UNWIND_WITH_UNWIND",
+            "CPPTRACE_GET_SYMBOLS_WITH_LIBDL",
+            "CPPTRACE_DEMANGLE_WITH_CXXABI",
+        ],
+    }),
+    linkopts = select({
+        "@platforms//os:linux": ["-ldl"],
+        "//conditions:default": [],
+    }),
+)

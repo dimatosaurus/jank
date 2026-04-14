@@ -1,0 +1,18 @@
+(ns plugin.core)
+
+; Include the shared C++ header, same one the host uses.
+(cpp/raw "#include <shared.hpp>")
+
+; Inline C++ wrapper that calls the shared function.
+(cpp/raw "
+  namespace plugin_native {
+    using namespace jank::runtime;
+    object_ref call_magnitude(object_ref x, object_ref y, object_ref z) {
+      return make_box(shared::magnitude(to_real(x), to_real(y), to_real(z)));
+    }
+  }
+")
+
+; Call the shared C++ function from jank.
+(defn shared-magnitude [x y z]
+  (cpp/plugin_native.call_magnitude x y z))

@@ -1,0 +1,84 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "hdrs",
+    srcs = glob(["include/**/*.h"]),
+)
+
+BDWGC_CORE_SRCS = [
+    "allchblk.c",
+    "alloc.c",
+    "blacklst.c",
+    "dbg_mlc.c",
+    "dyn_load.c",
+    "finalize.c",
+    "headers.c",
+    "mach_dep.c",
+    "malloc.c",
+    "mallocx.c",
+    "mark.c",
+    "mark_rts.c",
+    "misc.c",
+    "new_hblk.c",
+    "os_dep.c",
+    "ptr_chck.c",
+    "reclaim.c",
+    "typd_mlc.c",
+    # GCJ support
+    "gcj_mlc.c",
+    # Disclaim support
+    "fnlz_mlc.c",
+]
+
+BDWGC_PTHREAD_SRCS = [
+    "gc_dlopen.c",
+    "pthread_start.c",
+    "pthread_support.c",
+    "specific.c",
+    "thread_local_alloc.c",
+]
+
+BDWGC_DEFINES = [
+    "ALL_INTERIOR_POINTERS",
+    "NO_EXECUTE_PERMISSION",
+    "GC_THREADS",
+    "_REENTRANT",
+    "GC_BUILTIN_ATOMIC",
+    "PARALLEL_MARK",
+    "THREAD_LOCAL_ALLOC",
+    "GC_GCJ_SUPPORT",
+    "GC_ENABLE_SUSPEND_THREAD",
+    "ENABLE_DISCLAIM",
+    "JAVA_FINALIZATION",
+    "GC_ATOMIC_UNCOLLECTABLE",
+    "LARGE_CONFIG",
+    "HANDLE_FORK",
+]
+
+cc_library(
+    name = "gc",
+    srcs = BDWGC_CORE_SRCS + BDWGC_PTHREAD_SRCS + select({
+        "@platforms//os:macos": ["darwin_stop_world.c"],
+        "@platforms//os:linux": ["pthread_stop_world.c"],
+    }),
+    hdrs = glob([
+        "include/**/*.h",
+    ]),
+    includes = ["include"],
+    copts = ["-w"],
+    defines = BDWGC_DEFINES,
+    linkopts = ["-lpthread"],
+)
+
+# The C++ throw-bad-alloc library (gctba).
+cc_library(
+    name = "gctba",
+    srcs = ["gc_badalc.cc"],
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    copts = ["-w"],
+    defines = BDWGC_DEFINES,
+    deps = [":gc"],
+)

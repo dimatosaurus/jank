@@ -1,0 +1,61 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "hdrs",
+    srcs = glob(["include/**/*.h"]),
+)
+
+filegroup(
+    name = "lib_hdrs",
+    srcs = glob(["lib/CppInterOp/*.h"]),
+)
+
+cc_library(
+    name = "cppinterop",
+    srcs = [
+        "lib/CppInterOp/CppInterOp.cpp",
+        "lib/CppInterOp/CXCppInterOp.cpp",
+        "lib/CppInterOp/Dispatch.cpp",
+        "lib/CppInterOp/DynamicLibraryManager.cpp",
+        "lib/CppInterOp/DynamicLibraryManagerSymbol.cpp",
+        "lib/CppInterOp/Paths.cpp",
+    ] + glob([
+        "lib/CppInterOp/*.h",
+    ]),
+    hdrs = glob([
+        "include/**/*.h",
+    ]),
+    includes = [
+        "include",
+        "lib",
+    ],
+    copts = [
+        "-w",
+        "-fno-strict-aliasing",
+    ],
+    defines = [
+        "CPPINTEROP_USE_REPL",
+        "_CINDEX_LIB_",
+        'CPPINTEROP_VERSION=\\"0.1\\"',
+        'LLVM_BINARY_DIR=\\"\\"',
+    ],
+    linkopts = select({
+        "@platforms//os:linux": ["-ldl"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "@llvm-project//clang:ast",
+        "@llvm-project//clang:basic",
+        "@llvm-project//clang:frontend",
+        "@llvm-project//clang:interpreter",
+        "@llvm-project//clang:lex",
+        "@llvm-project//clang:sema",
+        "@llvm-project//llvm:BinaryFormat",
+        "@llvm-project//llvm:Core",
+        "@llvm-project//llvm:Object",
+        "@llvm-project//llvm:OrcJIT",
+        "@llvm-project//llvm:Support",
+    ],
+)

@@ -1,0 +1,35 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "hdrs",
+    srcs = glob(["include/**/*.hpp"]),
+)
+
+cc_library(
+    name = "screen",
+    srcs = glob(
+        ["src/ftxui/screen/*.cpp"],
+        exclude = ["**/*_test.cpp"],
+    ) + glob(["src/ftxui/screen/*.hpp"]),
+    hdrs = glob(["include/ftxui/screen/*.hpp"]) + glob(["include/ftxui/util/*.hpp"]),
+    includes = ["include", "src"],
+    copts = ["-w"],
+    linkopts = select({
+        "@platforms//os:linux": ["-lpthread"],
+        "//conditions:default": [],
+    }),
+)
+
+cc_library(
+    name = "dom",
+    srcs = glob(
+        ["src/ftxui/dom/*.cpp"],
+        exclude = ["**/*_test.cpp"],
+    ) + glob(["src/ftxui/dom/*.hpp"]),
+    hdrs = glob(["include/ftxui/dom/*.hpp"]),
+    includes = ["include", "src"],
+    copts = ["-w"],
+    deps = [":screen"],
+)

@@ -1,0 +1,14 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "hdrs",
+    srcs = glob(["immer/**/*.hpp"]),
+)
+
+cc_library(
+    name = "immer",
+    hdrs = glob(["immer/**/*.hpp"]),
+    includes = ["."],
+)
