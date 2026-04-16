@@ -1,4 +1,5 @@
 common --enable_bzlmod
+common --enable_platform_specific_config
 
 build --cxxopt=-std=gnu++20
 build --host_cxxopt=-std=gnu++20
@@ -21,6 +22,11 @@ build --host_features=-layering_check
 # the jank resource directory assembly.
 build --check_visibility=false
 
+# On macOS, Bazel's sandbox uses symlinks which conflict with the
+# relative symlinks in the jank resource directory — headers get
+# resolved through both the sandbox and execroot, causing
+# redefinition errors.  Run actions locally on macOS to avoid this.
+build:macos --spawn_strategy=local
 
 # Default to optimized release builds with stripped binaries.
 build -c opt
