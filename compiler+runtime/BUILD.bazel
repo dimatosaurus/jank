@@ -23,7 +23,8 @@ filegroup(
     ]),
 )
 
-LLVM_TOOLCHAIN = "@@llvm++http_archive+llvm-toolchain-minimal-22.1.0-darwin-arm64"
+LLVM_TOOLCHAIN_DARWIN = "@@llvm++http_archive+llvm-toolchain-minimal-22.1.0-darwin-arm64"
+LLVM_TOOLCHAIN_LINUX = "@@llvm++http_archive+llvm-toolchain-minimal-22.1.0-linux-amd64"
 
 # ---------- Precompiled header (PCH) ----------
 # The JIT loads this PCH on startup so it knows all jank runtime types.
@@ -68,6 +69,9 @@ genrule(
             -o $@ \
             -c "$$RESOURCE/include/jank/prelude.hpp"
     """,
+    # On macOS, xcrun is available from the host; on Linux the hermetic
+    # toolchain has everything we need so the xcrun fallback is harmless
+    # (it just returns empty and SYSROOT_FLAG stays empty).
     visibility = ["//visibility:public"],
 )
 
@@ -111,9 +115,22 @@ jank_resource_dir(
         "",        # boost-preprocessor: include/boost → include/boost
         "",        # boost-multiprecision: include/boost → include/boost
     ],
-    clang_binary = [LLVM_TOOLCHAIN + "//:clang++"],
-    sysroot = ["@@llvm++osx+macos_sdk//sysroot:sysroot_source_directory"],
-    clang_resource_dir = [LLVM_TOOLCHAIN + "//:builtin_resource_dir_files"],
+    clang_binary = select({
+        "@platforms//os:macos": [LLVM_TOOLCHAIN_DARWIN + "//:clang++"],
+        "@platforms//os:linux": [LLVM_TOOLCHAIN_LINUX + "//:clang++"],
+    }),
+    sysroot = select({
+        "@platforms//os:macos": ["@@llvm++osx+macos_sdk//sysroot:sysroot_source_directory"],
+        "@platforms//os:linux": [],
+    }),
+    libcxx_headers = select({
+        "@platforms//os:macos": [],
+        "@platforms//os:linux": ["@@llvm++llvm_source+libcxx//:libcxx_headers_include_search_directory"],
+    }),
+    clang_resource_dir = select({
+        "@platforms//os:macos": [LLVM_TOOLCHAIN_DARWIN + "//:builtin_resource_dir_files"],
+        "@platforms//os:linux": [LLVM_TOOLCHAIN_LINUX + "//:builtin_resource_dir_files"],
+    }),
 )
 
 # Full resource dir including static libraries for AOT compilation.
@@ -159,9 +176,22 @@ jank_resource_dir(
         "",
         "",
     ],
-    clang_binary = [LLVM_TOOLCHAIN + "//:clang++"],
-    sysroot = ["@@llvm++osx+macos_sdk//sysroot:sysroot_source_directory"],
-    clang_resource_dir = [LLVM_TOOLCHAIN + "//:builtin_resource_dir_files"],
+    clang_binary = select({
+        "@platforms//os:macos": [LLVM_TOOLCHAIN_DARWIN + "//:clang++"],
+        "@platforms//os:linux": [LLVM_TOOLCHAIN_LINUX + "//:clang++"],
+    }),
+    sysroot = select({
+        "@platforms//os:macos": ["@@llvm++osx+macos_sdk//sysroot:sysroot_source_directory"],
+        "@platforms//os:linux": [],
+    }),
+    libcxx_headers = select({
+        "@platforms//os:macos": [],
+        "@platforms//os:linux": ["@@llvm++llvm_source+libcxx//:libcxx_headers_include_search_directory"],
+    }),
+    clang_resource_dir = select({
+        "@platforms//os:macos": [LLVM_TOOLCHAIN_DARWIN + "//:builtin_resource_dir_files"],
+        "@platforms//os:linux": [LLVM_TOOLCHAIN_LINUX + "//:builtin_resource_dir_files"],
+    }),
     static_libs = [
         ":libjank-standalone",
         ":libLLVM",
@@ -169,7 +199,10 @@ jank_resource_dir(
         ":libcrypto",
         ":libz",
         ":libzstd",
-    ],
+    ] + select({
+        "@platforms//os:linux": [":libcxx_static", ":libcxxabi_static"],
+        "@platforms//os:macos": [],
+    }),
 )
 
 # ---------- Merged static archives for AOT linking ----------
@@ -253,13 +286,30 @@ merge_archives(
 merge_archives(
     name = "libz",
     output_name = "libz.a",
-    deps = ["@zlib"],
+    deps = ["@llvm-project//third-party:zlib"],
 )
 
 merge_archives(
     name = "libzstd",
     output_name = "libzstd.a",
-    deps = ["@zstd"],
+    deps = ["@llvm-project//third-party:zstd"],
+)
+
+# Real (non-stub) libc++ and libc++abi static archives for AOT linking.
+# The LLVM module's libcxx_library_search_directory contains 8-byte stubs;
+# the actual object code is in the .static targets.
+genrule(
+    name = "libcxx_static",
+    srcs = ["@llvm//runtimes/libcxx:libcxx.static"],
+    outs = ["libc++.a"],
+    cmd = "cp $< $@",
+)
+
+genrule(
+    name = "libcxxabi_static",
+    srcs = ["@llvm//runtimes/libcxx:libcxxabi.static"],
+    outs = ["libc++abi.a"],
+    cmd = "cp $< $@",
 )
 
 # ---------- Compiler flags matching CMake configuration ----------
@@ -514,7 +564,7 @@ cc_library(
         # External deps
         "@boost.asio",
         "@openssl//:crypto",
-        "@zlib",
+        "@llvm-project//third-party:zlib",
         # LLVM/Clang
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:Support",
@@ -545,10 +595,8 @@ cc_library(
         "@llvm-project//clang:parse",
         "@llvm-project//clang:sema",
         "@llvm-project//clang:serialization",
-    ] + select({
-        "@platforms//os:macos": ["@zstd"],
-        "//conditions:default": [],
-    }),
+        "@llvm-project//third-party:zstd",
+    ],
 )
 
 # ---------- jank phase-1 executable ----------
@@ -578,7 +626,7 @@ cc_binary(
         ":jank_lib",
         "@cppinterop",
         "@openssl//:crypto",
-        "@zlib",
+        "@llvm-project//third-party:zlib",
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:LineEditor",
         "@llvm-project//llvm:Support",

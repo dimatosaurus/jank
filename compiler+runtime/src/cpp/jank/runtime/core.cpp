@@ -774,7 +774,7 @@ namespace jank::runtime
       /* When we cancel, pthread will implicitly throw this force unwind. We want to intercept
        * that so we can mark our thread as cancelled. We then rethrow, since pthread is excepting
        * this to unwind all the way. */
-#ifdef JANK_LINUX_LIKE
+#if defined(JANK_LINUX_LIKE) && defined(__GLIBCXX__)
       catch(abi::__forced_unwind const &fu)
       {
         auto const locked_state{ ret->state.wlock() };

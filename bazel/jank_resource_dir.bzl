@@ -16,7 +16,11 @@ def _jank_resource_dir_impl(ctx):
     pkg = ctx.label.package
     pkg_prefix = (pkg + "/") if pkg else ""
 
-    commands = ["set -e"]
+    commands = [
+        "set -e",
+        # relln SRC DST — create a relative symlink at DST pointing to SRC.
+        'relln() { ln -sf "$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], os.path.dirname(sys.argv[2])))" "$1" "$2")" "$2"; }',
+    ]
 
     # --- .jank source files → src/jank/... ---
     for f in ctx.files.jank_sources:
@@ -24,7 +28,7 @@ def _jank_resource_dir_impl(ctx):
         if rel.startswith(pkg_prefix):
             rel = rel[len(pkg_prefix):]
         commands.append("mkdir -p '{}/{}'".format(outpath, rel.rsplit("/", 1)[0]))
-        commands.append("ln -sf \"${{PWD}}/{}\" '{}/{}'".format(f.path, outpath, rel))
+        commands.append("relln '{}' '{}/{}'".format(f.path, outpath, rel))
 
     # --- jank headers → include/... (strip include/cpp/ prefix) ---
     for f in ctx.files.jank_headers:
@@ -34,7 +38,7 @@ def _jank_resource_dir_impl(ctx):
         if rel.startswith("include/cpp/"):
             rel = "include/" + rel[len("include/cpp/"):]
         commands.append("mkdir -p '{}/{}'".format(outpath, rel.rsplit("/", 1)[0]))
-        commands.append("ln -sf \"${{PWD}}/{}\" '{}/{}'".format(f.path, outpath, rel))
+        commands.append("relln '{}' '{}/{}'".format(f.path, outpath, rel))
 
     # --- third-party headers ---
     for i, target in enumerate(ctx.attr.third_party_headers):
@@ -53,23 +57,32 @@ def _jank_resource_dir_impl(ctx):
                 rel = rel[1:]
             dst = prefix + "/" + rel if prefix else rel
             commands.append("mkdir -p '{}/{}'".format(outpath, dst.rsplit("/", 1)[0]))
-            commands.append("ln -sf \"${{PWD}}/{}\" '{}/{}'".format(f.path, outpath, dst))
+            commands.append("relln '{}' '{}/{}'".format(f.path, outpath, dst))
 
     # --- clang++ binary → bin/clang++ ---
     if ctx.files.clang_binary:
         clang = ctx.files.clang_binary[0]
         commands.append("mkdir -p '{}/bin'".format(outpath))
-        commands.append("ln -sf \"${{PWD}}/{}\" '{}/bin/clang++'".format(clang.path, outpath))
+        commands.append("relln '{}' '{}/bin/clang++'".format(clang.path, outpath))
 
     # --- libc++ headers → include/c++/v1/ ---
-    # The JIT on macOS uses -nostdinc++ -I {clang_dir}/../include/c++/v1
-    # which resolves to {resource_dir}/include/c++/v1/
-    # We symlink the entire directory from the sysroot.
+    # The JIT uses -nostdinc++ -I {resource_dir}/include/c++/v1.
+    # On macOS these come from the sysroot; on Linux from the hermetic libcxx.
     if ctx.files.sysroot:
         sysroot = ctx.files.sysroot[0]
-        commands.append("mkdir -p '{}/include/c++'".format(outpath))
-        commands.append("ln -sf \"${{PWD}}/{}/usr/include/c++/v1\" '{}/include/c++/v1'".format(
+        commands.append("mkdir -p '{}/include/c++/v1'".format(outpath))
+        commands.append("relln '{}/usr/include/c++/v1' '{}/include/c++/v1/_sysroot'".format(
             sysroot.path, outpath,
+        ))
+        # Symlink each entry inside the sysroot c++/v1 directory.
+        commands.append("for f in '{}/usr/include/c++/v1'/*; do relln \"$f\" '{}/include/c++/v1/'\"$(basename \"$f\")\"; done".format(
+            sysroot.path, outpath,
+        ))
+    elif ctx.files.libcxx_headers:
+        libcxx = ctx.files.libcxx_headers[0]
+        commands.append("mkdir -p '{}/include/c++/v1'".format(outpath))
+        commands.append("for f in '{}/'*; do relln \"$f\" '{}/include/c++/v1/'\"$(basename \"$f\")\"; done".format(
+            libcxx.path, outpath,
         ))
 
     # --- clang resource dir → lib/clang/<ver>/ ---
@@ -79,7 +92,7 @@ def _jank_resource_dir_impl(ctx):
         if idx >= 0:
             rel = path[idx:]
             commands.append("mkdir -p '{}/{}'".format(outpath, rel.rsplit("/", 1)[0]))
-            commands.append("ln -sf \"${{PWD}}/{}\" '{}/{}'".format(path, outpath, rel))
+            commands.append("relln '{}' '{}/{}'".format(path, outpath, rel))
 
     # --- pre-compiled core modules → core-libs/ ---
     # The module loader checks {process_dir}/core-libs/ for .o files
@@ -87,7 +100,7 @@ def _jank_resource_dir_impl(ctx):
     for f in ctx.files.core_libs:
         # f.path is like "clojure/core.o" — place at core-libs/clojure/core.o
         commands.append("mkdir -p '{}/core-libs/{}'".format(outpath, f.path.rsplit("/", 1)[0]))
-        commands.append("ln -sf \"${{PWD}}/{}\" '{}/core-libs/{}'".format(
+        commands.append("relln '{}' '{}/core-libs/{}'".format(
             f.path, outpath, f.path,
         ))
 
@@ -95,14 +108,14 @@ def _jank_resource_dir_impl(ctx):
     # The AOT linker uses -L{resource_dir}/lib and links against these.
     for f in ctx.files.static_libs:
         commands.append("mkdir -p '{}/lib'".format(outpath))
-        commands.append("ln -sf \"${{PWD}}/{}\" '{}/lib/{}'".format(
+        commands.append("relln '{}' '{}/lib/{}'".format(
             f.path, outpath, f.basename,
         ))
 
     # --- .clang-format ---
     if ctx.files.clang_format:
         commands.append("mkdir -p '{}/share'".format(outpath))
-        commands.append("ln -sf \"${{PWD}}/{}\" '{}/share/.clang-format'".format(
+        commands.append("relln '{}' '{}/share/.clang-format'".format(
             ctx.files.clang_format[0].path,
             outpath,
         ))
@@ -112,6 +125,7 @@ def _jank_resource_dir_impl(ctx):
         ctx.files.jank_headers +
         ctx.files.clang_binary +
         ctx.files.sysroot +
+        ctx.files.libcxx_headers +
         ctx.files.clang_resource_dir +
         ctx.files.core_libs +
         ctx.files.static_libs +
@@ -143,6 +157,7 @@ jank_resource_dir = rule(
         "third_party_header_prefixes": attr.string_list(),
         "clang_binary": attr.label_list(allow_files = True),
         "sysroot": attr.label_list(allow_files = True),
+        "libcxx_headers": attr.label_list(allow_files = True),
         "clang_resource_dir": attr.label_list(allow_files = True),
         "core_libs": attr.label_list(allow_files = [".o"]),
         "static_libs": attr.label_list(allow_files = [".a"]),

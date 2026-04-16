@@ -29,10 +29,13 @@ def _merge_archives_impl(ctx):
 
     ar = ctx.executable._ar
 
+    # Use qcL to merge archives (L opens thin archives and adds their
+    # members directly, preserving duplicate-named members like
+    # utils.pic.o from different subdirectories).
     ctx.actions.run_shell(
         outputs = [out],
         inputs = unique + [ar],
-        command = "{ar} qcLS {out} {inputs}".format(
+        command = "{ar} qcL {out} {inputs} && {ar} s {out}".format(
             ar = ar.path,
             out = out.path,
             inputs = " ".join([a.path for a in unique]),
@@ -50,7 +53,7 @@ merge_archives = rule(
         "extra_objects": attr.label_list(allow_files = [".o", ".a"]),
         "output_name": attr.string(mandatory = True),
         "_ar": attr.label(
-            default = "@@llvm++http_archive+llvm-toolchain-minimal-22.1.0-darwin-arm64//:llvm-ar",
+            default = "//bazel:llvm-ar",
             executable = True,
             cfg = "exec",
         ),

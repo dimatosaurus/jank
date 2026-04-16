@@ -22,9 +22,6 @@ build --host_features=-layering_check
 build --check_visibility=false
 
 
-# Avoid sandboxing issues on macOS with symlinks.
-build --spawn_strategy=local
-
 # Default to optimized release builds with stripped binaries.
 build -c opt
 build --strip=always

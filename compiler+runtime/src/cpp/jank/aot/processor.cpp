@@ -137,6 +137,17 @@ int main(int argc, const char** argv)
         util::format("Unable to find Clang {}.", JANK_CLANG_MAJOR_VERSION));
     }
     auto const clang_dir{ std::filesystem::path{ clang_path_str.unwrap().c_str() }.parent_path() };
+
+    /* Same as jit/processor.cpp: when the resource directory ships its
+     * own libc++ headers, suppress system C++ include paths. */
+    auto const libcxx_include_path{ clang_dir / "../include/c++/v1" };
+    if(std::filesystem::exists(libcxx_include_path))
+    {
+      compiler_args.emplace_back(strdup("-nostdinc++"));
+      compiler_args.emplace_back(strdup("-I"));
+      compiler_args.emplace_back(strdup(libcxx_include_path.c_str()));
+    }
+
     compiler_args.emplace_back(strdup("-I"));
     compiler_args.emplace_back(strdup((clang_dir / "../include").c_str()));
     compiler_args.emplace_back(
@@ -278,6 +289,13 @@ int main(int argc, const char** argv)
     compiler_args.push_back(strdup("c++"));
     compiler_args.push_back(strdup(entrypoint_path.c_str()));
 
+    /* On Linux, use --start-group/--end-group so the linker resolves
+     * circular references between static archives. */
+    if constexpr(jtl::current_platform == jtl::platform::linux_like)
+    {
+      compiler_args.push_back(strdup("-Wl,--start-group"));
+    }
+
     for(auto const &lib : { "-ljank-standalone",
                             /* Default libraries that jank depends on. */
                             "-lm",
@@ -295,11 +313,28 @@ int main(int argc, const char** argv)
       compiler_args.push_back(strdup(util::format("-l{}", lib).c_str()));
     }
 
-    /* On non-macOS platforms, explicitly link libstdc++.
-     * macOS uses libc++ implicitly via Clang. */
+    /* On non-macOS platforms, explicitly link the C++ standard library.
+     * When using a hermetic toolchain (libc++ headers in resource dir),
+     * link libc++; otherwise fall back to system libstdc++. */
     if constexpr(jtl::current_platform != jtl::platform::macos_like)
     {
-      compiler_args.push_back(strdup("-lstdc++"));
+      auto const clang_path{ util::find_clang() };
+      auto const libcxx_path{ clang_path.is_some()
+                                ? std::filesystem::path{ clang_path.unwrap().c_str() }.parent_path()
+                                    / "../include/c++/v1"
+                                : std::filesystem::path{} };
+      if(std::filesystem::exists(libcxx_path))
+      {
+        compiler_args.push_back(strdup("-nostdlib++"));
+        compiler_args.push_back(strdup("-lc++"));
+        compiler_args.push_back(strdup("-lc++abi"));
+      }
+      else
+      {
+        compiler_args.push_back(strdup("-lstdc++"));
+      }
+
+      compiler_args.push_back(strdup("-Wl,--end-group"));
     }
 
     /* Required because of `strdup` usage and need to manually free the memory.

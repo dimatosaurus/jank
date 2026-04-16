@@ -1,1 +1,11 @@
 # This package contains Starlark rules and macros for building jank projects.
+
+# Platform-aware alias for the hermetic llvm-ar binary.
+alias(
+    name = "llvm-ar",
+    actual = select({
+        "@platforms//os:macos": "@@llvm++http_archive+llvm-toolchain-minimal-22.1.0-darwin-arm64//:llvm-ar",
+        "@platforms//os:linux": "@@llvm++http_archive+llvm-toolchain-minimal-22.1.0-linux-amd64//:llvm-ar",
+    }),
+    visibility = ["//visibility:public"],
+)
